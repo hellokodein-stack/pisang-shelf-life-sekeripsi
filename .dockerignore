@@ -1,0 +1,11 @@
+.git
+.gitignore
+__pycache__/
+*.pyc
+.DS_Store
+.vscode/
+runs/
+static/uploads/*
+static/analysis/*
+test_images/
+*.log
