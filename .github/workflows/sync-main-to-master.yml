@@ -1,0 +1,36 @@
+name: Sync main -> master (Railway deploy branch)
+
+# Railway membangun dari branch `master` (bukan `main`). Workflow ini
+# menjadikan `master` selalu sama persis dengan `main` setiap ada push,
+# sehingga Railway otomatis mendapat semua perbaikan tanpa PR manual.
+#
+# Catatan: `master` hanya dipakai Railway untuk deploy. Karena ini mirror
+# paksa (force), JANGAN push langsung ke `master` — isinya akan ditimpa
+# oleh isi `main` pada push berikutnya.
+#
+# Sync manual: buka tab Actions -> pilih workflow ini -> Run workflow.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo (semua history, agar ref origin/master lengkap)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # --force-with-lease: hanya menimpa master jika tidak ada push lain
+      # yang masuk sejak fetch (aman dari race / tidak menghapus perubahan
+      # yang tidak kita tahu). Karena main selalu sumber kebenaran, master
+      # dijadikan identik dengan HEAD main.
+      - name: Force-sync master ke main
+        run: |
+          git push --force-with-lease origin HEAD:master

@@ -69,7 +69,11 @@ Buka `http://127.0.0.1:10000` (atau set `PORT` kalau mau ganti port).
 6. **Buka URL** — Railway memberikan domain `https://<service>.up.railway.app`
    otomatis. Test: upload gambar pisang → hasil analisis tampil.
 
-7. **Update berikutnya**: cukup `git push` — Railway auto-deploy ulang.
+7. **Update berikutnya**: cukup `git push` ke `main` — GitHub Action
+   `.github/workflows/sync-main-to-master.yml` otomatis menyalin `main` →
+   `master`, lalu Railway auto-deploy ulang. Pastikan Source Railway menunjuk
+   ke branch **`master`** (Settings → Source). **Jangan push langsung ke
+   `master`** — isinya akan ditimpa oleh isi `main`.
 
 ### 2.3 Konfigurasi yang sudah ada (tidak perlu diubah)
 
