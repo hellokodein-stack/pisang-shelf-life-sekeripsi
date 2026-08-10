@@ -199,20 +199,31 @@ def predict():
             # 7. Sub-kategori
             sub_kategori = result["sub_kategori"]
 
-            # 8. Segmentasi YOLO
-            mask, segmented_img, area, segmented_path = segment_banana(filepath)
+            # 8. Segmentasi YOLO (best-effort). Sebagian kecil foto
+            #    (mis. beberapa foto dataset dari HP tertentu) tidak
+            #    terdeteksi model YOLO. Kalau gagal, analisis utama
+            #    (klasifikasi CNN + daya simpan + rekomendasi) tetap
+            #    sukses dengan metrik pigmen/nekrosis estimasi berbasis
+            #    stage — pola yang sama dengan tampilan riwayat (history).
+            segmentasi_ok = True
+            mask_area = 0
+            segmented_path = None
+            try:
+                mask, segmented_img, area, segmented_path = segment_banana(filepath)
+                pigmen_kuning = calculate_pigment(segmented_img, mask)
+                necrosis_rate = calculate_necrosis(segmented_img, mask)
+                mask_area = area
+            except Exception as seg_err:
+                print(f"WARN: segmentasi gagal ({seg_err}) — pakai estimasi stage")
+                segmentasi_ok = False
 
-            # Analisis Pigmentasi
-            pigmen_kuning = calculate_pigment(
-                segmented_img,
-                mask
-            )
-
-            # Analisis Nekrosis
-            necrosis_rate = calculate_necrosis(
-                segmented_img,
-                mask
-            )
+            if not segmentasi_ok:
+                # Estimasi metrik dari stage kematangan (sama dengan viewFromHistory)
+                pigmen_map = [0, 8, 25, 68, 85, 95]
+                necrosis_map = [0, 2, 5, 12, 18, 35]
+                idx = min(stage, len(pigmen_map) - 1)
+                pigmen_kuning = pigmen_map[idx]
+                necrosis_rate = necrosis_map[idx]
 
         # 9. Estimasi simpan
         if remaining_days >= 2:
@@ -246,7 +257,8 @@ def predict():
             "confidence": confidence,
             "top3_prediction": top3,
             "image_url": image_url,
-            "segmented_image": "/" + segmented_path.replace("\\", "/"),
+            "segmented_image": ("/" + segmented_path.replace("\\", "/")) if segmented_path else None,
+            "segmentasi_ok": segmentasi_ok,
 
             # Varietas & kematangan
             "variety": variety,
@@ -259,7 +271,7 @@ def predict():
             # Metrik
             "pigmen_kuning": pigmen_kuning,
             "necrosis_rate": necrosis_rate,
-            "mask_area": area,
+            "mask_area": mask_area,
             "progress_pct": progress_pct,
             # Daya simpan
             "remaining_days": remaining_days,

@@ -46,14 +46,16 @@ def segment_banana(image_path):
 
     h, w = image.shape[:2]
 
-    # conf=0.1: model hasil training memberi confidence ~0.18 pada foto
-    # pisang yang jelas (mis. test_images/testambon.jpg), jadi threshold
-    # 0.25 terlalu tinggi dan membuat request gagal dengan
-    # "Pisang tidak terdeteksi." (500). 0.1 masih menyaring deteksi
-    # noise tanpa menolak foto pisang yang valid.
+    # conf=0.02: model hasil training memberi confidence ~0.18 pada foto
+    # pisang yang jelas (mis. test_images/testambon.jpg). Sebagian kecil
+    # foto dataset (terutama beberapa foto HP VIVO/Realme) memberi
+    # confidence hanya 0.02-0.10 — ambang 0.1/0.25 membuatnya gagal
+    # dengan "Pisang tidak terdeteksi." (500). 0.02 menangkap hampir
+    # semua foto dataset; sisa foto yang tetap gagal ditangani app.py
+    # dengan fallback estimasi berbasis stage.
     results = model.predict(
         source=image_path,
-        conf=0.1,
+        conf=0.02,
         verbose=False
     )
 
@@ -95,6 +97,14 @@ def segment_banana(image_path):
     best_index = np.argmax(confidences)
 
     best_mask = masks[best_index]
+
+    # Sanity check: mask terbaik yang lebih kecil dari 0.5% frame hampir
+    # pasti noise (bayangan/background), bukan pisang. Tolak supaya metrik
+    # pigmen/nekrosis tidak dihitung dari area yang keliru. (Mask YOLO
+    # berukuran 640x640 sebelum di-resize ke ukuran asli.)
+    frame_px = best_mask.shape[0] * best_mask.shape[1]
+    if best_mask.sum() < frame_px * 0.005:
+        raise ValueError("Pisang tidak terdeteksi.")
 
     best_mask = cv2.resize(
         best_mask,
