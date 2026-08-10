@@ -8,7 +8,7 @@
 
 ## 1. Jalankan Lokal (untuk demo sidang)
 
-Kebutuhan: **Python 3.10 atau 3.11** (TensorFlow 2.15 tidak mendukung 3.12+).
+Kebutuhan: **Python 3.11** (keras 3.15 butuh Python ≥ 3.11; TensorFlow 2.16 mendukung 3.9–3.12).
 
 ```bash
 # dari folder project (web_skripsi)
