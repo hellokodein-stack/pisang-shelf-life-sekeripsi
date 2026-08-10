@@ -5,6 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Sistem Analisis Daya Simpan Pisang Raja & Ambon</title>
+    <link rel="icon" href="data:,">
     <script src="https://cdn.tailwindcss.com"></script>
     <link
         href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=Nunito:wght@300;400;600;700;800&display=swap"
@@ -130,6 +131,13 @@
             transition: opacity 0.5s ease, transform 0.5s ease;
         }
 
+        /* Mobile Safari/iOS: 100vh lebih tinggi dari area terlihat (termasuk
+           URL bar). Browser yang mendukung dvh memakai tinggi dinamis yang
+           benar; yang tidak mendukung mengabaikan baris ini dan tetap 100vh. */
+        .page {
+            min-height: 100dvh !important;
+        }
+
         .page.active {
             display: block;
             opacity: 1;
@@ -143,6 +151,7 @@
             right: 0;
             z-index: 100;
             background: rgba(15, 26, 14, 0.92);
+            -webkit-backdrop-filter: blur(20px);
             backdrop-filter: blur(20px);
             border-bottom: 1px solid var(--border);
         }
@@ -277,6 +286,7 @@
             inset: 0;
             z-index: 99;
             background: rgba(15, 26, 14, 0.97);
+            -webkit-backdrop-filter: blur(20px);
             backdrop-filter: blur(20px);
             padding-top: 70px;
         }
@@ -510,6 +520,7 @@
             border-radius: 20px;
             font-weight: 700;
             font-size: 12px;
+            -webkit-backdrop-filter: blur(8px);
             backdrop-filter: blur(8px);
             animation: labelFloat 3s ease-in-out infinite;
             pointer-events: none;
@@ -1465,6 +1476,7 @@
             inset: 0;
             z-index: 300;
             background: rgba(0, 0, 0, 0.6);
+            -webkit-backdrop-filter: blur(6px);
             backdrop-filter: blur(6px);
             display: none;
             align-items: center;
@@ -2260,15 +2272,22 @@
         let deleteTarget = null;
 
         // ===== NAVIGASI =====
+        function scrollToTop() {
+            // Safari < 15.4 belum mendukung scrollTo(options) — pakai bentuk
+            // (x, y) klasik supaya tetap scroll ke atas di semua browser.
+            if ('scrollBehavior' in document.documentElement.style) {
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+            } else {
+                window.scrollTo(0, 0);
+            }
+        }
+
         function showPage(page) {
             document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
             document.getElementById('page-' + page).classList.add('active');
             document.querySelectorAll('.nav-link').forEach(l => l.classList.remove('active'));
             document.querySelectorAll('.nav-link[data-page="' + page + '"]').forEach(l => l.classList.add('active'));
-            window.scrollTo({
-                top: 0,
-                behavior: 'smooth'
-            });
+            scrollToTop();
             if (page === 'jejak') renderJejakBuah();
         }
 
@@ -2313,19 +2332,36 @@
         }
 
         // ===== UPLOAD GAMBAR =====
-        function handleFileUpload(input) {
-            var file = input.files[0];
-            if (!file) return;
-            if (file.size > 10 * 1024 * 1024) {
-                showToast('Ukuran file melebihi 10MB', 'error');
-                return;
-            }
-            var allowed = ['image/jpeg', 'image/png', 'image/webp'];
-            if (!allowed.includes(file.type)) {
-                showToast('Format file tidak didukung', 'error');
-                return;
-            }
-            uploadedFile = file;
+        // Foto dari iPhone/iPad (Safari) sering berformat HEIC/HEIF yang tidak
+        // bisa dibaca server. Safari bisa men-decode HEIC, jadi konversi dulu
+        // ke JPEG lewat canvas sebelum diunggah.
+        function convertHeicToJpeg(file, done) {
+            var reader = new FileReader();
+            reader.onload = function (e) {
+                var img = new Image();
+                img.onload = function () {
+                    var canvas = document.createElement('canvas');
+                    canvas.width = img.naturalWidth;
+                    canvas.height = img.naturalHeight;
+                    canvas.getContext('2d').drawImage(img, 0, 0);
+                    canvas.toBlob(function (blob) {
+                        if (blob) {
+                            var jpegName = file.name.replace(/\.(heic|heif)$/i, '.jpg') || 'foto.jpg';
+                            done(new File([blob], jpegName, { type: 'image/jpeg' }));
+                        } else {
+                            showToast('Foto tidak bisa diproses. Ubah ke JPG/PNG dulu.', 'error');
+                        }
+                    }, 'image/jpeg', 0.9);
+                };
+                img.onerror = function () {
+                    showToast('Foto HEIC tidak bisa dibaca. Ubah ke JPG/PNG dulu.', 'error');
+                };
+                img.src = e.target.result;
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function showPreview(file) {
             var reader = new FileReader();
             reader.onload = function (e) {
                 uploadedPreviewUrl = e.target.result;
@@ -2337,6 +2373,48 @@
                 updateAnalyzeBtn();
             };
             reader.readAsDataURL(file);
+        }
+
+        function handleFileUpload(input) {
+            var file = input.files[0];
+            if (!file) return;
+            if (file.size > 10 * 1024 * 1024) {
+                showToast('Ukuran file melebihi 10MB', 'error');
+                return;
+            }
+
+            var type = (file.type || '').toLowerCase();
+            var name = file.name || '';
+            var isHeic = type === 'image/heic' || type === 'image/heif' || /\.(heic|heif)$/i.test(name);
+
+            if (isHeic) {
+                showToast('Mengonversi foto HEIC...', 'warning');
+                convertHeicToJpeg(file, function (jpeg) {
+                    uploadedFile = jpeg;
+                    showPreview(jpeg);
+                    updateAnalyzeBtn();
+                    showToast('Gambar berhasil diunggah', 'success');
+                });
+                return;
+            }
+
+            // Beberapa browser/devices mengirim file.type kosong — cek ekstensi
+            // sebagai cadangan supaya file valid tidak ditolak.
+            var allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
+            var allowedExt = ['jpg', 'jpeg', 'png', 'webp'];
+            var ok = allowedTypes.indexOf(type) !== -1;
+            if (!ok) {
+                var ext = name.split('.').pop().toLowerCase();
+                ok = allowedExt.indexOf(ext) !== -1;
+            }
+            if (!ok) {
+                showToast('Format file tidak didukung', 'error');
+                return;
+            }
+
+            uploadedFile = file;
+            showPreview(file);
+            updateAnalyzeBtn();
             showToast('Gambar berhasil diunggah', 'success');
         }
 
@@ -2834,15 +2912,22 @@
                             var bulan = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov',
                                 'Des'
                             ];
-                            try {
-                                var d = new Date(isoString);
-                                var h = String(d.getHours()).padStart(2, '0');
-                                var m = String(d.getMinutes()).padStart(2, '0');
-                                return d.getDate() + ' ' + bulan[d.getMonth()] + ' ' + d.getFullYear() + ' ' + h + ':' +
-                                    m;
-                            } catch (e) {
+                            var d = new Date(isoString);
+                            if (isNaN(d.getTime())) {
+                                // Safari tidak mem-parse format "YYYY-MM-DD HH:MM:SS"
+                                // (tanpa huruf T) yang kadang muncul di data lama,
+                                // sementara Chrome/Edge mem-parse-nya. Ambil manual.
+                                var m = String(isoString).match(/(\d{4})[-/](\d{1,2})[-/](\d{1,2})[ T](\d{1,2}):(\d{1,2})/);
+                                if (m) {
+                                    var hh = String(parseInt(m[4], 10)).padStart(2, '0');
+                                    var mm = String(parseInt(m[5], 10)).padStart(2, '0');
+                                    return parseInt(m[3], 10) + ' ' + bulan[parseInt(m[2], 10) - 1] + ' ' + m[1] + ' ' + hh + ':' + mm;
+                                }
                                 return '-';
                             }
+                            var h = String(d.getHours()).padStart(2, '0');
+                            var min = String(d.getMinutes()).padStart(2, '0');
+                            return d.getDate() + ' ' + bulan[d.getMonth()] + ' ' + d.getFullYear() + ' ' + h + ':' + min;
                         }
 
                         // ===== PARTICLES =====
@@ -2875,6 +2960,16 @@
 
                         // ===== REVEAL ON SCROLL =====
                         function initReveal() {
+                            var els = document.querySelectorAll('.reveal');
+                            // Safari < 12.1 belum punya IntersectionObserver —
+                            // tampilkan semua konten langsung supaya halaman
+                            // tetap terlihat, bukan tersembunyi.
+                            if (typeof IntersectionObserver === 'undefined') {
+                                els.forEach(function (el) {
+                                    el.classList.add('visible');
+                                });
+                                return;
+                            }
                             var observer = new IntersectionObserver(function (entries) {
                                 entries.forEach(function (e) {
                                     if (e.isIntersecting) e.target.classList.add('visible');
@@ -2882,7 +2977,7 @@
                             }, {
                                 threshold: 0.1
                             });
-                            document.querySelectorAll('.reveal').forEach(function (el) {
+                            els.forEach(function (el) {
                                 observer.observe(el);
                             });
                         }
