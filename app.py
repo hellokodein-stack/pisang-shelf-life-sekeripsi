@@ -2,6 +2,8 @@ from flask import Flask, render_template, request, jsonify
 from werkzeug.utils import secure_filename
 import os
 import re
+import threading
+import time
 from datetime import datetime
 
 from predict import predict_image
@@ -13,13 +15,49 @@ from analysis.necrosis import calculate_necrosis
 
 app = Flask(__name__)
 
-UPLOAD_FOLDER = "static/uploads"
+# Model CNN (TensorFlow) dan YOLO dimuat sekali sebagai singleton di proses ini.
+# gunicorn dijalankan dengan --threads 4, sehingga prediksi dari beberapa
+# thread bisa tumpang tindih. predict() pada model tunggal (terutama YOLO)
+# tidak thread-safe, jadi serialkan seluruh pipeline model dengan satu lock.
+MODEL_LOCK = threading.Lock()
+
+UPLOAD_FOLDER = os.environ.get("UPLOAD_FOLDER", "static/uploads")
 ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "webp"}
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
+
+# File upload/hasil analisis dihapus otomatis setelah TTL ini (detik) agar
+# disk tidak penuh (Render free plan). Riwayat localStorage browser menyimpan
+# URL gambar, jadi TTL sengaja panjang (default 7 hari) dan bisa disetel via
+# env UPLOAD_TTL_SECONDS.
+UPLOAD_TTL_SECONDS = int(os.environ.get("UPLOAD_TTL_SECONDS", 7 * 24 * 3600))
 
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
 app.config["MAX_CONTENT_LENGTH"] = MAX_FILE_SIZE
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+
+def cleanup_old_uploads():
+    """Hapus file upload/hasil analisis yang lebih tua dari TTL (best-effort).
+
+    Dipanggil saat startup dan setiap ada request /predict. File yang baru
+    dibuat tidak mungkin terhapus karena umurnya < TTL. .gitkeep dibiarkan.
+    Kegagalan menghapus satu file tidak menggagalkan request.
+    """
+    cutoff = time.time() - UPLOAD_TTL_SECONDS
+    try:
+        for entry in os.scandir(UPLOAD_FOLDER):
+            if not entry.is_file() or entry.name == ".gitkeep":
+                continue
+            try:
+                if os.path.getmtime(entry.path) < cutoff:
+                    os.remove(entry.path)
+            except OSError:
+                pass  # file sudah hilang / tidak bisa dihapus
+    except OSError:
+        pass
+
+
+cleanup_old_uploads()
 
 
 def allowed_file(filename):
@@ -98,6 +136,16 @@ def index():
     return render_template("index.html")
 
 
+@app.route("/healthz")
+def healthz():
+    """Healthcheck endpoint untuk Render (healthCheckPath) dan Docker HEALTHCHECK.
+
+    Ringan dan tidak menyentuh model, sehingga selalu responsif dalam 5 detik
+    (batas waktu healthcheck Render) bahkan saat ada prediksi yang berjalan.
+    """
+    return jsonify({"status": "ok"})
+
+
 @app.route("/predict", methods=["POST"])
 def predict():
     # 1. Validasi file
@@ -112,53 +160,59 @@ def predict():
     if not allowed_file(file.filename):
         return jsonify({"success": False, "error": "Format file tidak didukung. Gunakan JPG, PNG, atau WEBP"}), 400
 
-    # 2. Simpan file dengan timestamp
+    # 2. Simpan file dengan timestamp (microseconds agar unik walau
+    #    beberapa request dengan nama file sama tiba di detik yang sama)
     filename = secure_filename(file.filename)
     name, ext = os.path.splitext(filename)
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     filename = f"{name}_{timestamp}{ext}"
 
     filepath = os.path.join(app.config["UPLOAD_FOLDER"], filename)
     file.save(filepath)
 
+    # Bersihkan file lama sambil jalan agar disk tidak menumpuk
+    cleanup_old_uploads()
+
     try:
-        # 3. Prediksi — label format: "ambon_H5" atau "raja_H12"
-        label, confidence, top3 = predict_image(filepath)
+        # 3-8. Pipeline model (prediksi CNN + segmentasi YOLO + analisis)
+        with MODEL_LOCK:
+            # 3. Prediksi — label format: "ambon_H5" atau "raja_H12"
+            label, confidence, top3 = predict_image(filepath)
 
-        print("=" * 50)
-        print("LABEL :", label)
-        print("CONFIDENCE :", confidence)
+            print("=" * 50)
+            print("LABEL :", label)
+            print("CONFIDENCE :", confidence)
 
-        # 4. Estimasi shelf life
-        result = estimate_shelf_life(label)
-        print(result)
+            # 4. Estimasi shelf life
+            result = estimate_shelf_life(label)
+            print(result)
 
-        # 5. Extract info dari label
-        variety = result["variety_lower"]       # "ambon" atau "raja"
-        current_day = result["current_day"]      # 1-17
-        stage = result["stage"]                  # 1-5
-        remaining_days = result["remaining_days"]
+            # 5. Extract info dari label
+            variety = result["variety_lower"]       # "ambon" atau "raja"
+            current_day = result["current_day"]      # 1-24
+            stage = result["stage"]                  # 1-5
+            remaining_days = result["remaining_days"]
 
-        # 6. Kategori utama
-        kategori_utama = "Matang" if stage >= 3 else "Mentah"
+            # 6. Kategori utama
+            kategori_utama = "Matang" if stage >= 3 else "Mentah"
 
-        # 7. Sub-kategori
-        sub_kategori = result["sub_kategori"]
+            # 7. Sub-kategori
+            sub_kategori = result["sub_kategori"]
 
-        # 8. Segmentasi YOLO
-        mask, segmented_img, area, segmented_path = segment_banana(filepath)
+            # 8. Segmentasi YOLO
+            mask, segmented_img, area, segmented_path = segment_banana(filepath)
 
-        # Analisis Pigmentasi
-        pigmen_kuning = calculate_pigment(
-            segmented_img,
-            mask
-        )
+            # Analisis Pigmentasi
+            pigmen_kuning = calculate_pigment(
+                segmented_img,
+                mask
+            )
 
-        # Analisis Nekrosis
-        necrosis_rate = calculate_necrosis(
-            segmented_img,
-            mask
-        )
+            # Analisis Nekrosis
+            necrosis_rate = calculate_necrosis(
+                segmented_img,
+                mask
+            )
 
         # 9. Estimasi simpan
         if remaining_days >= 2:
@@ -183,7 +237,7 @@ def predict():
         progress_pct = min(100, round((current_day / result["max_shelf_life"]) * 100))
 
         # 13. URL gambar
-        image_url = f"/{filepath}"
+        image_url = "/" + filepath.replace("\\", "/")
 
         return jsonify({
             "success": True,

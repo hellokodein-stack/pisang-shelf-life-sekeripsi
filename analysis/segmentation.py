@@ -63,13 +63,17 @@ def segment_banana(image_path):
     print("Masks :", result.masks)
     print("=" * 50)
 
-    # Simpan hasil visualisasi YOLO
+    # Simpan hasil visualisasi YOLO.
+    # Nama file dibuat unik per request (dari nama file upload yang sudah
+    # ditimestamp) agar request bersamaan tidak saling menimpa hasilnya.
+    stem = os.path.splitext(os.path.basename(image_path))[0]
+
     annotated = result.plot()
 
     yolo_output = os.path.join(
         "static",
         "uploads",
-        "yolo_result.jpg"
+        f"{stem}_yolo_result.jpg"
     )
 
     cv2.imwrite(yolo_output, annotated)
@@ -111,7 +115,7 @@ def segment_banana(image_path):
     output_path = os.path.join(
         "static",
         "uploads",
-        "segmented_result.png"
+        f"{stem}_segmented_result.png"
     )
 
     cv2.imwrite(output_path, segmented)

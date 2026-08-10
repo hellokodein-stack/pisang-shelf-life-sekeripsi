@@ -12,12 +12,16 @@ MAX_SHELF_LIFE = {
 }
 
 # Mapping Hari → Stage (5 tingkat kematangan)
+# Model memiliki kelas sampai H24 (raja_H18..raja_H24),
+# sehingga hari di luar rentang observasi dianggap Stage 5 (Matang Lanjut).
 HARI_TO_STAGE = {
     1: 1, 2: 1, 3: 1,           # H1-H3  → Stage 1
     4: 2, 5: 2, 6: 2,           # H4-H6  → Stage 2
     7: 3, 8: 3, 9: 3, 10: 3,    # H7-H10 → Stage 3
     11: 4, 12: 4, 13: 4,        # H11-H13 → Stage 4
     14: 5, 15: 5, 16: 5, 17: 5, # H14-H17 → Stage 5
+    18: 5, 19: 5, 20: 5, 21: 5, # H18-H24 → Stage 5 (di luar observasi, sudah lewat matang)
+    22: 5, 23: 5, 24: 5,
 }
 
 SUB_KATEGORI = {
@@ -42,7 +46,7 @@ def estimate_shelf_life(label):
     max_shelf = MAX_SHELF_LIFE.get(variety, 17)
     remaining_days = max(0, max_shelf - current_day)
 
-    stage = HARI_TO_STAGE.get(current_day, 3)
+    stage = HARI_TO_STAGE.get(current_day, 5)
     sub_kategori = SUB_KATEGORI.get(stage, "Unknown")
 
     return {
