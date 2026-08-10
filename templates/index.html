@@ -2412,7 +2412,15 @@
                     body: formData
                 })
                 .then(function (res) {
-                    return res.json();
+                    // Respons bisa bukan JSON (mis. 502/504 dari proxy saat
+                    // deploy berganti atau server restart). Kalau gagal
+                    // di-parse, tampilkan pesan yang jelas, bukan error aneh.
+                    return res.json().catch(function () {
+                        return {
+                            success: false,
+                            error: 'Server sedang sibuk (HTTP ' + res.status + '). Silakan coba lagi.'
+                        };
+                    });
                 })
                 .then(function (data) {
                     clearInterval(progressInterval);
