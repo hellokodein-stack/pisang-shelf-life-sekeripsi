@@ -12,7 +12,7 @@ opencv-python-headless==4.8.1.78
 torch==2.1.2+cpu
 torchvision==0.16.2+cpu
 --extra-index-url https://download.pytorch.org/whl/cpu
-ultralytics==8.0.232
+ultralytics==8.4.106  # model banana_seg.pt dilatih dengan versi ini (cek metadata ckpt); 8.0.232 gagal dengan 'Segment' object has no attribute 'detect'
 numpy==1.26.4  # kompatibel keras 3.15 + TF 2.16 (keras 3.15 bisa gagal di numpy 1.24)
 pillow==10.1.0
 werkzeug==2.3.7

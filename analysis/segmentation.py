@@ -46,9 +46,14 @@ def segment_banana(image_path):
 
     h, w = image.shape[:2]
 
+    # conf=0.1: model hasil training memberi confidence ~0.18 pada foto
+    # pisang yang jelas (mis. test_images/testambon.jpg), jadi threshold
+    # 0.25 terlalu tinggi dan membuat request gagal dengan
+    # "Pisang tidak terdeteksi." (500). 0.1 masih menyaring deteksi
+    # noise tanpa menolak foto pisang yang valid.
     results = model.predict(
         source=image_path,
-        conf=0.25,
+        conf=0.1,
         verbose=False
     )
 
