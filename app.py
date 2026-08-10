@@ -1,5 +1,6 @@
 from flask import Flask, render_template, request, jsonify
 from werkzeug.utils import secure_filename
+from PIL import Image, ImageOps
 import os
 import re
 import threading
@@ -169,6 +170,28 @@ def predict():
 
     filepath = os.path.join(app.config["UPLOAD_FOLDER"], filename)
     file.save(filepath)
+
+    # Foto kamera HP bisa sangat besar (2448-4096px, beberapa MB). Di
+    # container kecil (mis. Railway 1GB) memprosesnya full-res bisa bikin
+    # worker kehabisan memori / lambat sampai proxy timeout (502). CNN cuma
+    # butuh 300x300 dan YOLO 640x640, jadi turunkan ke maks MAX_IMAGE_DIM
+    # (default 1600px) — hasil analisis praktis identik, memori & waktu
+    # jauh lebih kecil. EXIF orientation di-bake supaya CNN (PIL) dan YOLO
+    # (cv2) melihat orientasi yang sama.
+    try:
+        img = ImageOps.exif_transpose(Image.open(filepath)).convert("RGB")
+        w, h = img.size
+        max_dim = int(os.environ.get("MAX_IMAGE_DIM", 1600))
+        if max(w, h) > max_dim:
+            scale = max_dim / max(w, h)
+            img = img.resize(
+                (max(1, int(w * scale)), max(1, int(h * scale))),
+                Image.LANCZOS
+            )
+            img.save(filepath)
+    except Exception as downscale_err:
+        # Downscale bersifat best-effort — kalau gagal, lanjut full-res.
+        print(f"WARN: downscale gambar gagal ({downscale_err})")
 
     # Bersihkan file lama sambil jalan agar disk tidak menumpuk
     cleanup_old_uploads()
