@@ -1,6 +1,11 @@
 flask==2.3.3
 gunicorn==21.2.0
-tensorflow-cpu==2.15.0
+# Model efficientnetb0_model.keras disimpan dengan Keras 3, tapi
+# tensorflow-cpu 2.15 menginstal keras 2.15 yang tidak bisa mendeserialisasi
+# file tersebut (keras.src.models.functional tidak ada di Keras 2).
+# TF 2.16 + Keras 3 terbukti memuat model dan prediksi dengan benar.
+tensorflow-cpu==2.16.1
+keras==3.15.1
 opencv-python-headless==4.8.1.78
 torch==2.1.2+cpu
 torchvision==0.16.2+cpu

@@ -2,8 +2,11 @@ import json
 import numpy as np
 from pathlib import Path
 
+# Keras 3 (dipakai oleh TensorFlow 2.16+) tidak lagi menyediakan
+# tensorflow.keras.preprocessing.image; utilitas load_img/img_to_array
+# pindah ke keras.utils.
 from tensorflow.keras.models import load_model
-from tensorflow.keras.preprocessing import image
+from tensorflow.keras.utils import load_img, img_to_array
 from tensorflow.keras.applications.efficientnet import preprocess_input
 
 # ==========================
@@ -42,9 +45,9 @@ IMG_SIZE = (300, 300)
 
 def predict_image(img_path):
 
-    img = image.load_img(img_path, target_size=IMG_SIZE)
+    img = load_img(img_path, target_size=IMG_SIZE)
 
-    img = image.img_to_array(img)
+    img = img_to_array(img)
 
     img = np.expand_dims(img, axis=0)
 
